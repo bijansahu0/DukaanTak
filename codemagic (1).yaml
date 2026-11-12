@@ -1,0 +1,41 @@
+workflows:
+  android-release:
+    name: DukaanTak Android Release
+    instance_type: linux_x2
+    max_build_duration: 30
+    environment:
+      flutter: stable
+      java: 17
+      # Codemagic > Environment variables me GOOGLE_SERVICES_JSON add karein
+      # (google-services.json ka base64)
+    scripts:
+      - name: android/ios folders banana (agar missing ho)
+        script: |
+          sed -i 's/^name: .*/name: dukaantak_customer/' pubspec.yaml
+          if [ ! -d android ]; then
+            flutter create . --org com.dukaantak --project-name dukaantak_customer --platforms=android,ios
+          fi
+      - name: Gradle patch (minSdk 23, lint fix, permissions)
+        script: |
+          GRADLE=$(ls android/app/build.gradle.kts android/app/build.gradle 2>/dev/null | head -n1)
+          sed -i -E 's/minSdk(Version)? *=? *flutter\.minSdkVersion/minSdk = 23/' "$GRADLE"
+          if ! grep -q checkReleaseBuilds "$GRADLE"; then
+            if [[ "$GRADLE" == *.kts ]]; then
+              sed -i '0,/^android {/s//android {\n    lint { checkReleaseBuilds = false }/' "$GRADLE"
+            else
+              sed -i '0,/^android {/s//android {\n    lint { checkReleaseBuilds false }/' "$GRADLE"
+            fi
+          fi
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          if ! grep -q ACCESS_FINE_LOCATION "$MANIFEST"; then
+            sed -i '0,/<application/s//<uses-permission android:name="android.permission.INTERNET"\/>\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"\/>\n    <application/' "$MANIFEST"
+          fi
+      - name: google-services.json banana
+        script: |
+          echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
+      - name: Packages lana
+        script: flutter pub get
+      - name: Release APK build
+        script: flutter build apk --release
+    artifacts:
+      - build/app/outputs/flutter-apk/*.apk
